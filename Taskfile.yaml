@@ -1,0 +1,15 @@
+version: '3'
+
+tasks:
+  install_deps:
+    desc: 'Install dependencies'
+    cmds:
+      - GOBIN=$(pwd)/bin go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+      - GOBIN=$(pwd)/bin go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+      - GOBIN=$(pwd)/bin GO111MODULE=on go install github.com/bufbuild/buf/cmd/buf@v1.42.0
+
+  generate_protobuf:
+    desc: 'Generate protobuf files using buf'
+    cmds:
+      - mkdir -p protos/gen
+      - bin/buf generate

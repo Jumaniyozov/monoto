@@ -1,0 +1,10 @@
+version: v1
+plugins:
+  - name: protoc-gen-go
+    out: protos/gen
+    opt: paths=source_relative
+    path: ./bin/protoc-gen-go
+  - name: protoc-gen-go-grpc
+    out: protos/gen
+    opt: paths=source_relative
+    path: ./bin/protoc-gen-go-grpc
