@@ -5,13 +5,17 @@ import (
 	"fmt"
 	user "github.com/jumaniyozov/monoto/protos/gen/protos"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/plugin/kprom"
 	"google.golang.org/protobuf/proto"
+	"log"
 	"time"
 )
 
 func main() {
+	metrics := kprom.NewMetrics("namespace")
 	// Create a new Kafka client
 	client, err := kgo.NewClient(
+		kgo.WithHooks(metrics),
 		kgo.SeedBrokers("localhost:9092"),
 		kgo.TransactionalID("my-transactional-id"),
 		kgo.ProducerBatchMaxBytes(2*1024*1024),
@@ -22,6 +26,9 @@ func main() {
 			return 100 * time.Millisecond
 		}),
 		kgo.RequiredAcks(kgo.AllISRAcks()), // Wait for all in-sync replicas
+		//kgo.DialTLSConfig(&tls.Config{
+		//	InsecureSkipVerify: true,
+		//}),
 	)
 	if err != nil {
 		panic("Unable to create Kafka client: " + err.Error())
@@ -41,41 +48,33 @@ func main() {
 	// Prepare the record to send
 	record := &kgo.Record{
 		Topic: "my_topic",
+		Key:   []byte("my_key"),
 		Value: value,
 	}
 
+	// Ensure transactions are managed sequentially
 	err = client.BeginTransaction()
 	if err != nil {
-		panic("Failed to begin transaction: " + err.Error())
+		log.Printf("Failed to begin transaction: %v\n", err)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Produce messages within the transaction
+		client.Produce(ctx, record, nil)
+		client.Produce(ctx, record, nil)
+
+		// Commit the transaction
+		err = client.EndTransaction(ctx, kgo.TryCommit)
+		if err != nil {
+			panic("Failed to commit transaction: " + err.Error())
+		}
+
+		// Wait for the message to be delivered
+		err = client.Flush(context.Background())
+		if err != nil {
+			return
+		}
+		fmt.Println("Messages sent in transaction successfully.")
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Produce messages within the transaction
-	client.Produce(ctx, record, nil)
-	client.Produce(ctx, record, nil)
-
-	// Commit the transaction
-	err = client.EndTransaction(ctx, kgo.TryCommit)
-	if err != nil {
-		panic("Failed to commit transaction: " + err.Error())
-	}
-
-	//// Produce the message
-
-	//client.Produce(ctx, record, func(_ *kgo.Record, err error) {
-	//	if err != nil {
-	//		fmt.Printf("Failed to deliver message: %v\n", err)
-	//	} else {
-	//		fmt.Println("Message delivered successfully")
-	//	}
-	//})
-	//
-	// Wait for the message to be delivered
-	err = client.Flush(context.Background())
-	if err != nil {
-		return
-	}
-	fmt.Println("Messages sent in transaction successfully.")
 }
